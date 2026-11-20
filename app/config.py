@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 from functools import lru_cache
 
@@ -14,6 +15,7 @@ class Settings(BaseSettings):
     admin_ids: str = ""
     admin_group_id: int
     support_url: str = ""
+    premium_emoji: bool = True
 
     database_url: str
 
@@ -42,6 +44,20 @@ class Settings(BaseSettings):
     @property
     def admin_id_list(self) -> list[int]:
         return [int(x) for x in self.admin_ids.replace(" ", "").split(",") if x]
+
+    @property
+    def support_link(self) -> str:
+        """Прямая ссылка для URL-кнопки «Поддержка» (пусто — кнопка скрыта)."""
+        v = self.support_url.strip()
+        if not v:
+            return ""
+        if v.startswith("@"):
+            v = v[1:]
+        if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{4,31}", v):
+            return f"https://t.me/{v}"
+        if re.match(r"^(https?://|tg://)\S+$", v):
+            return v
+        return ""
 
     @property
     def pay_number_list(self) -> list[str]:

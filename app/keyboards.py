@@ -21,11 +21,14 @@ def _kb(rows: list[list[tuple[str, str]]]) -> InlineKeyboardMarkup:
 
 
 def main() -> InlineKeyboardMarkup:
-    return _kb([
+    rows = [
         [("⭐ Звезды", "stars"), ("🎁 Premium", "premium")],
         [("👛 Баланс", "balance"), ("👤 Профиль", "profile")],
-        [("💬 Поддержка", "support")],
-    ])
+    ]
+    link = get_settings().support_link
+    if link:  # URL-кнопка с прямой ссылкой из SUPPORT_URL
+        rows.append([("💬 Поддержка", f"url:{link}")])
+    return _kb(rows)
 
 
 def back(to: str = "menu") -> InlineKeyboardMarkup:
@@ -70,13 +73,6 @@ def profile_menu(history_count: int) -> InlineKeyboardMarkup:
     return _kb([[(f"🧾 История покупок ({history_count})", "history")], [("‹ Назад", "menu")]])
 
 
-def support_menu() -> InlineKeyboardMarkup:
-    url = get_settings().support_url
-    rows = []
-    if url:
-        rows.append([("✉️ Написать в поддержку", f"url:{url}")])
-    rows.append([("‹ Назад", "menu")])
-    return _kb(rows)
 
 
 def admin_payment(kind: str, item_id: int) -> InlineKeyboardMarkup:

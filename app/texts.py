@@ -61,11 +61,6 @@ def main_menu() -> str:
     )
 
 
-def support() -> str:
-    return ("💬 <b>Поддержка</b>\n\nЕсли возникли вопросы по заказу или оплате — напишите нам. "
-            "Укажите номер заказа, так мы поможем быстрее.")
-
-
 def step(kind: str, n: int, recipient=None, qty=None, months=None, prompt: str = "", note: str = "") -> str:
     parts = [head(kind, n), "", tree(order_lines(kind, recipient, qty, months))]
     if note:

@@ -9,6 +9,7 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from app import db, deps
+from app.emoji import PremiumEmojiMiddleware
 from app.config import get_settings
 from app.handlers import admin, flow, menu, payments
 from app.middleware import UserMiddleware
@@ -29,6 +30,10 @@ async def main() -> None:
     deps.catalog = Catalog(deps.hexc)
 
     bot = Bot(cfg.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    if cfg.premium_emoji:
+        bot.session.middleware(PremiumEmojiMiddleware())
+    if not cfg.support_link:
+        log.warning("SUPPORT_URL пуст или некорректен: кнопка «Поддержка» скрыта")
     dp = Dispatcher(storage=MemoryStorage())
     dp.message.outer_middleware(UserMiddleware())
     dp.callback_query.outer_middleware(UserMiddleware())
