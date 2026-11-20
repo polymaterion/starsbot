@@ -49,8 +49,11 @@ def tg_user(uid, username="client"):
 
 
 class Harness:
-    def __init__(self):
+    def __init__(self, premium=False):
         self.session = MockSession()
+        if premium:
+            from app.emoji import PremiumEmojiMiddleware
+            self.session.middleware(PremiumEmojiMiddleware())
         self.bot = Bot("1:test", session=self.session, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
         self.dp = Dispatcher(storage=MemoryStorage())
         self.dp.message.outer_middleware(UserMiddleware())
@@ -228,7 +231,10 @@ async def test_profile_support_history_and_banned(h):
     uid = 100
     await h.click(uid, "profile"); assert "Ваш профиль" in last_text(h)
     await h.click(uid, "history"); assert "Покупок пока нет" in last_text(h)
-    await h.click(uid, "support"); assert "Поддержка" in last_text(h)
+    await h.say(uid, "/start")                            # «Поддержка» — URL-кнопка, а не экран
+    kb = h.session.of(SendPhoto)[-1].reply_markup.inline_keyboard
+    support = [b for row in kb for b in row if "Поддержка" in b.text][0]
+    assert support.url == "https://t.me/test_support" and support.callback_data is None
     async with db.Session() as s:
         u = await s.get(User, uid); u.is_banned = True; await s.commit()
     n = len(h.session.calls)
@@ -252,3 +258,25 @@ async def test_admin_commands_only_for_admins(h):
     await h.say(1, "/credit 100 25,5", username="admin")
     async with db.Session() as s:
         assert (await s.get(User, 100)).balance_cents == 2550
+
+
+async def test_premium_emoji_end_to_end(env):
+    from app import deps
+    from app.services.pricing import Catalog
+    deps.catalog = Catalog(deps.hexc)
+    h = Harness(premium=True)
+    await h.say(100, "/start")
+    sent = h.session.of(SendPhoto)[-1]
+    assert '<tg-emoji emoji-id="5958413064658228696">👋</tg-emoji>' in sent.caption      # приветствие
+    assert '<tg-emoji emoji-id="5875008416132370818">⬇️</tg-emoji>' in sent.caption      # с variation selector
+    buttons = {b.callback_data or "url": b for row in sent.reply_markup.inline_keyboard for b in row}
+    assert buttons["stars"].text == "Звезды" and buttons["stars"].icon_custom_emoji_id == "5958376256788502078"
+    assert buttons["premium"].icon_custom_emoji_id == "6032937473162614352"
+    assert buttons["url"].text == "Поддержка" and buttons["url"].icon_custom_emoji_id == "5884510167986343350"
+    assert buttons["url"].url == "https://t.me/test_support"
+    # шаг с редактированием медиа тоже получает эмодзи в подписи
+    await h.click(100, "stars")
+    edit = h.session.of(EditMessageMedia)[-1]
+    assert '<tg-emoji emoji-id="5958376256788502078">⭐</tg-emoji>' in edit.media.caption
+    assert '<tg-emoji emoji-id="5879841310902324730">✏️</tg-emoji>' in edit.media.caption
+    assert edit.reply_markup.inline_keyboard[0][0].icon_custom_emoji_id == "5886412370347036129"  # 👤 «Купить для себя»
