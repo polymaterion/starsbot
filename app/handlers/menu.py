@@ -32,12 +32,6 @@ async def cb_menu(cb: CallbackQuery, state: FSMContext):
     await show_main(cb.bot, cb.message.chat.id, Ref.of(cb.message))
 
 
-@router.callback_query(F.data == "support")
-async def cb_support(cb: CallbackQuery):
-    await cb.answer()
-    await render(cb.bot, Ref.of(cb.message), cb.message.chat.id, "support", T.support(), K.support_menu())
-
-
 @router.callback_query(F.data == "profile")
 async def cb_profile(cb: CallbackQuery):
     await cb.answer()
