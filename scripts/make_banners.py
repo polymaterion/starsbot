@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PIL import Image
 
-NAMES = ["main", "stars", "premium", "payment", "profile", "balance", "support"]
+NAMES = ["main", "stars", "premium", "payment", "profile", "balance"]
 OUT = Path(__file__).resolve().parent.parent / "assets" / "banners"
 
 
