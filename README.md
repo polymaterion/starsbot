@@ -8,7 +8,7 @@ Telegram-бот: клиент покупает **Telegram Stars** и **Premium**
 
 1. Создайте бота в @BotFather, создайте админ-группу, добавьте туда бота, узнайте ID группы и свой ID.
 2. `cp .env.example .env` и заполните: `BOT_TOKEN`, `ADMIN_IDS`, `ADMIN_GROUP_ID`, `HEX_API_KEY`,
-   `PAY_NUMBERS`, `SUPPORT_URL`, пароль Postgres (в `POSTGRES_PASSWORD` и в `DATABASE_URL`).
+   `PAY_NUMBERS`, `SUPPORT_URL` (прямая ссылка на поддержку), пароль Postgres (в `POSTGRES_PASSWORD` и в `DATABASE_URL`).
 3. **Каждый админ должен один раз нажать /start у бота**, иначе Telegram не даст боту писать ему в личку
    (туда приходят предупреждения о депозите и росте цены).
 4. `docker compose up -d --build`. Таблицы создаются автоматически при старте.
@@ -59,9 +59,23 @@ Telegram-бот: клиент покупает **Telegram Stars** и **Premium**
 
 ## Баннеры
 
-`assets/banners/*.png` (1280×640): `main, stars, premium, payment, profile, balance, support`.
+`assets/banners/*.png` (1280×640): `main, stars, premium, payment, profile, balance`.
 Сейчас это белые заглушки. Замените файл с тем же именем и перезапустите бота (file_id кэшируется).
 Нет файла — экран показывается без картинки. Пересоздать заглушки: `python scripts/make_banners.py`.
+
+## Кнопка «Поддержка»
+
+URL-кнопка в главном меню с прямой ссылкой из `SUPPORT_URL`: `https://t.me/your_support`, `@your_support`
+или `tg://…`. Если переменная пуста или некорректна, кнопка скрыта (в логе при старте будет предупреждение).
+
+## Премиум-эмодзи
+
+ID заданы в `app/emoji.py` (25 клиентских эмодзи). Перехватчик запросов сам заменяет эмодзи в тексте на
+`<tg-emoji>` и ставит иконки на кнопки (`icon_custom_emoji_id`, эмодзи из текста кнопки убирается).
+Если Telegram отклонит запрос с премиум-эмодзи, он повторяется с обычными, бот не ломается.
+Условие Telegram для иконок на кнопках: у владельца бота есть Telegram Premium или у бота куплены
+дополнительные юзернеймы на Fragment. Отключить: `PREMIUM_EMOJI=false`.
+Для ↩️ 🛠 🚨 ℹ️ (только для админов) ID не заданы, они остаются обычными. Добавить: строка в `EMOJI_IDS`.
 
 ## Тесты
 
@@ -70,7 +84,7 @@ pip install -r requirements-dev.txt
 pytest                                    # SQLite в памяти
 TEST_DATABASE_URL=postgresql+asyncpg://user:pass@localhost/db pytest   # реальный Postgres
 ```
-28 тестов: клиент Hex (ретраи, 429, ошибки), цены, воркер (депозит, 402, защита цены, возвраты,
+35 тестов: клиент Hex (ретраи, 429, ошибки), цены, воркер (депозит, 402, защита цены, возвраты,
 таймаут), полный путь клиента и админа через настоящий Dispatcher с двойником Telegram.
 
 ## Что проверено, а что нет
