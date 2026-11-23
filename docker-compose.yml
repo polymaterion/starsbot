@@ -24,6 +24,8 @@ services:
     volumes:
       # баннеры можно менять без пересборки образа
       - ./assets/banners:/srv/assets/banners:ro
+      # тексты (locales/*.json) тоже можно править без пересборки: достаточно перезапустить бот
+      - ./locales:/srv/locales:ro
 
 volumes:
   pgdata:
