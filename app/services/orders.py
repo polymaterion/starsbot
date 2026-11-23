@@ -40,8 +40,8 @@ async def _pick_total(s: AsyncSession, base_cents: int) -> tuple[int, int]:
     taken = set(
         (await s.scalars(select(Order.total_cents).where(Order.status.in_(OPEN_STATUSES), Order.pay_method == "transfer"))).all()
     ) | set((await s.scalars(select(Topup.total_cents).where(Topup.status.in_(OPEN_STATUSES)))).all())
-    for lo in range(1, 500, 50):
-        cand = list(range(lo, min(lo + 50, 500)))
+    for lo in range(1, 500, 49):
+        cand = list(range(lo, min(lo + 49, 500)))
         random.shuffle(cand)
         for tail in cand:
             if base_cents + tail not in taken:
