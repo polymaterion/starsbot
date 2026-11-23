@@ -66,3 +66,9 @@ def test_support_button_hidden_without_link(monkeypatch):
     from app import keyboards as K
     monkeypatch.setattr(get_settings(), "support_url", "")
     assert all("Поддержка" not in b.text for row in K.main().inline_keyboard for b in row)
+
+
+def test_decimal_settings_accept_comma():
+    from app.config import Settings
+    s = Settings(default_rate_tmt_per_rub="0,2353", default_markup_percent=" 12,5 ", topup_min_tmt="10")
+    assert str(s.default_rate_tmt_per_rub) == "0.2353" and str(s.default_markup_percent) == "12.5"

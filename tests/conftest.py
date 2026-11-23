@@ -6,6 +6,7 @@ os.environ.update({
     "POLL_MIN_INTERVAL_SEC": "0", "SUPPORT_URL": "@test_support",
 })
 
+import pytest
 import pytest_asyncio
 
 from app import db, deps
@@ -97,3 +98,11 @@ async def _products(self):
 
 FakeHex.check_recipient = _check_recipient
 FakeHex.products = _products
+
+
+@pytest.fixture(autouse=True)
+def _reset_i18n():
+    from app import i18n
+    yield
+    i18n.use(None)
+    i18n.reload()

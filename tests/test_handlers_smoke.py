@@ -81,7 +81,7 @@ class Harness:
         chat_id = chat_id or uid
         msg = Message(message_id=500, date=datetime.now(), chat=Chat(id=chat_id, type="private" if chat_id > 0 else "supergroup"),
                       photo=[PhotoSize(file_id="b", file_unique_id="b", width=1, height=1)] if photo_msg else None,
-                      caption="карточка" if chat_id < 0 else None)
+                      caption="card" if chat_id < 0 else None)
         cb = CallbackQuery(id=str(self._next()), from_user=tg_user(uid, username), chat_instance="x", data=data, message=msg)
         await self.dp.feed_update(self.bot, Update(update_id=self._next(), callback_query=cb))
 
