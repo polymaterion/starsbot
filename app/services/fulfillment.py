@@ -27,9 +27,10 @@ from app.config import get_settings
 from app.db import Order, Topup, utcnow
 from app.services.errors import reason_text
 from app.services.hex_client import HexError
-from app.services.notify import notify_admins, safe_send
+from app.services.notify import notify_admins, send_to_user
 from app.services.orders import refund_order
-from app.texts import MONTHS, esc, money
+from app.i18n import t
+from app.texts import esc, money, months_label
 
 log = logging.getLogger(__name__)
 
@@ -50,18 +51,15 @@ def _parse_dt(value: str | None) -> datetime | None:
 
 def _item_title(o: Order) -> str:
     if o.kind == "stars":
-        return f"⭐ {o.stars_count} звёзд"
-    return f"🎁 Premium на {MONTHS.get(o.months, str(o.months))}"
+        return t("adm.item.stars", n=o.stars_count)
+    return t("adm.item.premium", period=months_label(o.months))
 
 
 async def _fail(bot: Bot, s, o: Order, code: str, message: str = "") -> None:
     if await refund_order(s, o, code, message):
         await s.commit()
-        await safe_send(
-            bot, o.user_id,
-            f"❌ <b>Заказ #{o.id} не выполнен</b>\n{reason_text(code)}\n\n"
-            f"💰 {money(o.total_cents)} TMT возвращены на баланс бота.",
-        )
+        await send_to_user(bot, o.user_id, lambda: t("fulfil.failed", id=o.id, reason=reason_text(code),
+                                                     amount=money(o.total_cents)))
 
 
 
@@ -78,9 +76,9 @@ async def _enter_waiting(bot: Bot, s, o: Order, reason: str) -> None:
     o.status = "hex_waiting"
     if not o.deposit_alerted:
         o.deposit_alerted = True
-        await notify_admins(bot, f"⚠️ <b>{reason}</b>\nЗаказ #{o.id} ждёт. Пополните депозит Hex — заказ выдастся сам.")
+        await notify_admins(bot, t("adm.deposit_wait", reason=reason, id=o.id))
     if first:
-        await safe_send(bot, o.user_id, f"⏳ Заказ #{o.id} принят и скоро будет выполнен. Мы сообщим, когда он придёт.")
+        await send_to_user(bot, o.user_id, lambda: t("fulfil.accepted", id=o.id))
     await s.commit()
 
 
@@ -134,11 +132,9 @@ async def _advance(bot: Bot, s, o: Order) -> None:
         await s.commit()
         await notify_admins(
             bot,
-            f"⚠️ <b>Цена Hex выросла</b> — заказ #{o.id}\n"
-            f"{_item_title(o)} → @{esc(o.recipient)}\n"
-            f"Продано на оценку: {Decimal(o.quoted_nano) / 1000:.2f} ₽\n"
-            f"Сейчас у Hex: {Decimal(o.hex_total_nano) / 1000:.2f} ₽\n"
-            f"Клиент заплатил: {money(o.total_cents)} TMT",
+            t("adm.price_up", id=o.id, item=_item_title(o), recipient=esc(o.recipient),
+              quoted=f"{Decimal(o.quoted_nano) / 1000:.2f}", now=f"{Decimal(o.hex_total_nano) / 1000:.2f}",
+              paid=money(o.total_cents)),
             K.price_review(o.id),
         )
         return
@@ -149,7 +145,7 @@ async def _advance(bot: Bot, s, o: Order) -> None:
     except HexError:
         return
     if int(bal.get("balance_nano", 0)) < (o.hex_total_nano or 0):
-        await _enter_waiting(bot, s, o, "Недостаточно депозита Hex")
+        await _enter_waiting(bot, s, o, t("adm.reason.no_deposit"))
         return
 
     # 4. pay
@@ -158,11 +154,11 @@ async def _advance(bot: Bot, s, o: Order) -> None:
     except HexError as e:
         if e.status == 402:
             _rotate_custom_id(o)  # заказ в Hex стал rejected — следующая попытка с новым custom_id
-            await _enter_waiting(bot, s, o, "Недостаточно депозита Hex")
+            await _enter_waiting(bot, s, o, t("adm.reason.no_deposit"))
         elif e.status == 409 and e.code in ("out_of_stock", "product_unavailable", "recipient_invalid"):
             await _fail(bot, s, o, e.code, e.message)
         elif e.status in (401, 403):
-            await _alert_once(bot, s, o, "Hex отклонил API-ключ (401/403). Проверьте HEX_API_KEY.")
+            await _alert_once(bot, s, o, t("adm.alert.key"))
         else:
             o.hex_errors += 1
             o.last_error = str(e)[:500]
@@ -177,7 +173,7 @@ async def _advance(bot: Bot, s, o: Order) -> None:
 async def _alert_once(bot: Bot, s, o: Order, text: str) -> None:
     if not o.deposit_alerted:
         o.deposit_alerted = True
-        await notify_admins(bot, f"🚨 {text}\nЗаказ #{o.id}.")
+        await notify_admins(bot, t("adm.alert_once", text=text, id=o.id))
     await s.commit()
 
 
@@ -187,12 +183,12 @@ async def _on_create_error(bot: Bot, s, o: Order, e: HexError) -> None:
     elif e.status == 400:
         await _fail(bot, s, o, e.code or "invalid_order_data", e.message)
     elif e.status in (401, 403):
-        await _alert_once(bot, s, o, "Hex отклонил API-ключ (401/403). Проверьте HEX_API_KEY.")
+        await _alert_once(bot, s, o, t("adm.alert.key"))
     else:
         o.hex_errors += 1
         o.last_error = str(e)[:500]
         if o.hex_errors == MAX_HEX_ERRORS_BEFORE_ALERT:
-            await notify_admins(bot, f"⚠️ Hex недоступен для заказа #{o.id}: {esc(e)}")
+            await notify_admins(bot, t("adm.hex_down", id=o.id, error=esc(e)))
         await s.commit()
 
 
@@ -212,19 +208,20 @@ async def _poll(bot: Bot, s, o: Order) -> None:
     if st == "delivered":
         o.status, o.done_at = "done", now
         await s.commit()
-        what = f"{o.stars_count} звёзд" if o.kind == "stars" else f"Premium на {MONTHS.get(o.months)}"
-        await safe_send(bot, o.user_id, f"✅ <b>Заказ #{o.id} выполнен!</b>\n{what} отправлены на @{esc(o.recipient)}. Спасибо за покупку!")
+        await send_to_user(bot, o.user_id, lambda: (
+            t("fulfil.done_stars", id=o.id, n=o.stars_count, recipient=esc(o.recipient)) if o.kind == "stars"
+            else t("fulfil.done_premium", id=o.id, period=months_label(o.months), recipient=esc(o.recipient))))
     elif st in ("failed", "cancelled"):
         await _fail(bot, s, o, code or ("order_cancelled" if st == "cancelled" else "delivery_failed"))
     elif st == "rejected":
         _rotate_custom_id(o)
-        await _enter_waiting(bot, s, o, "Hex отклонил оплату заказа")
+        await _enter_waiting(bot, s, o, t("adm.reason.hex_rejected"))
     else:
         # pending / processing; delivery_in_review — не провал, ждём
         in_review = code == "delivery_in_review" or data.get("delivery_state") == "in_review"
         if in_review and not o.review_notified:
             o.review_notified = True
-            await safe_send(bot, o.user_id, f"🔍 Заказ #{o.id} проверяется дольше обычного. Деньги не списаны повторно — мы сообщим о результате.")
+            await send_to_user(bot, o.user_id, lambda: t("fulfil.review", id=o.id))
         await s.commit()
 
 
@@ -241,18 +238,18 @@ async def process_order(bot: Bot, order_id: int) -> None:
 
 async def expire_unpaid(bot: Bot) -> None:
     now = utcnow()
-    notices: list[tuple[int, str]] = []
+    notices: list[tuple[int, str, int]] = []
     async with db.Session() as s:
-        for model, label in ((Order, "Заказ"), (Topup, "Пополнение")):
+        for model, key in ((Order, "expire.order"), (Topup, "expire.topup")):
             rows = (await s.scalars(select(model).where(model.status == "awaiting_payment", model.expires_at < now))).all()
             for r in rows:
                 res = await s.execute(
                     update(model).where(model.id == r.id, model.status == "awaiting_payment").values(status="cancelled"))
                 if res.rowcount:
-                    notices.append((r.user_id, f"🚫 {label} #{r.id} отменён: время на оплату истекло. Оформите заново, если ещё актуально."))
+                    notices.append((r.user_id, key, r.id))
         await s.commit()
-    for uid, text in notices:
-        await safe_send(bot, uid, text)
+    for uid, key, rid in notices:
+        await send_to_user(bot, uid, lambda key=key, rid=rid: t(key, id=rid))
 
 
 async def check_deposit(bot: Bot, state: dict) -> None:
@@ -266,7 +263,7 @@ async def check_deposit(bot: Bot, state: dict) -> None:
     now = datetime.now()
     if low and (not state.get("alerted_at") or (now - state["alerted_at"]).total_seconds() > 6 * 3600):
         state["alerted_at"] = now
-        await notify_admins(bot, f"⚠️ Депозит Hex низкий: <b>{Decimal(nano) / 1000:.2f} ₽</b> (порог {cfg.hex_low_balance_rub} ₽). Пополните его.")
+        await notify_admins(bot, t("adm.low_deposit", balance=f"{Decimal(nano) / 1000:.2f}", threshold=cfg.hex_low_balance_rub))
     if not low:
         state["alerted_at"] = None
 
