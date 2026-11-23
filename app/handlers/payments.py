@@ -17,7 +17,8 @@ from app.config import get_settings
 from app.db import Order, ProofHash, Topup, User, utcnow
 from app.handlers.flow import show_open_payment
 from app.handlers.menu import show_main
-from app.services.notify import safe_send
+from app.i18n import t
+from app.services.notify import send_to_user
 from app.services.orders import create_topup, credit_balance, open_item
 from app.ui import Ref, draw, render, try_delete
 from datetime import timedelta
@@ -57,7 +58,7 @@ async def cb_topup(cb: CallbackQuery, state: FSMContext):
     await state.update_data(ref=ref.to_dict())
     await state.set_state(Top.amount)
     await draw(cb.bot, state, cb.message.chat.id, "balance",
-               f"➕ <b>Пополнение баланса</b>\n\n✏️ Введите сумму пополнения в TMT (от {cfg.topup_min_tmt} до {cfg.topup_max_tmt}):",
+               t("topup.ask", min=cfg.topup_min_tmt, max=cfg.topup_max_tmt),
                K.back("balance"))
 
 
@@ -71,16 +72,15 @@ async def got_topup_amount(m: Message, state: FSMContext):
         amount = Decimal(-1)
     if not (cfg.topup_min_tmt <= amount <= cfg.topup_max_tmt):
         await draw(m.bot, state, m.chat.id, "balance",
-                   f"➕ <b>Пополнение баланса</b>\n\n⚠️ Введите сумму от {cfg.topup_min_tmt} до {cfg.topup_max_tmt} TMT.\n\n"
-                   "✏️ Введите сумму пополнения в TMT:", K.back("balance"))
+                   t("topup.bad", min=cfg.topup_min_tmt, max=cfg.topup_max_tmt), K.back("balance"))
         return
     cents = int((amount * 100).to_integral_value())
     async with db.Session() as s:
-        t = await create_topup(s, user_id=m.from_user.id, amount_cents=cents)
+        tp = await create_topup(s, user_id=m.from_user.id, amount_cents=cents)
     await draw(m.bot, state, m.chat.id, "payment",
-               T.requisites(f"Пополнение баланса #{t.id}", t.total_cents, t.requisite, cfg.payment_ttl_minutes)
-               + "\n\nНа баланс зачислится вся переведённая сумма.",
-               K.cancel_payment("t", t.id))
+               T.requisites(t("req.topup_title", id=tp.id), tp.total_cents, tp.requisite, cfg.payment_ttl_minutes)
+               + "\n\n" + t("req.topup_note"),
+               K.cancel_payment("t", tp.id))
     await state.clear()
 
 
@@ -95,10 +95,10 @@ async def cb_cancel(cb: CallbackQuery, state: FSMContext):
         await s.commit()
     await state.clear()
     if res.rowcount:
-        await cb.answer("Отменено")
-        await show_main(cb.bot, cb.message.chat.id, Ref.of(cb.message), "🚫 Платёж отменён. Можно оформить новый.")
+        await cb.answer(t("alert.cancelled"))
+        await show_main(cb.bot, cb.message.chat.id, Ref.of(cb.message), t("cancel.done"))
     else:
-        await cb.answer("Платёж уже нельзя отменить (он на проверке или завершён).", show_alert=True)
+        await cb.answer(t("alert.cannot_cancel"), show_alert=True)
 
 
 # ── приём скриншота ──────────────────────────────────────────────────
@@ -109,17 +109,17 @@ async def on_proof(m: Message):
     async with db.Session() as s:
         item = await open_item(s, uid)
         if not item:
-            await m.answer("У вас нет платежа, ожидающего оплаты. Оформите заказ в меню: /start")
+            await m.answer(t("proof.no_item"))
             return
         kind, obj = item
         if obj.status == "proof_sent":
-            await m.answer("🔎 Ваш платёж уже на проверке. Пожалуйста, подождите.")
+            await m.answer(t("proof.already_review"))
             return
         file_id = m.photo[-1].file_id if m.photo else m.document.file_id
         buf = await m.bot.download(file_id)
         digest = sha256(buf.getvalue()).hexdigest()
         if await s.get(ProofHash, digest):
-            await m.answer("⚠️ Этот скриншот уже использовался. Отправьте актуальный чек вашего перевода.")
+            await m.answer(t("proof.duplicate"))
             return
         s.add(ProofHash(sha256=digest, user_id=uid))
         obj.proof_attempts += 1
@@ -128,21 +128,20 @@ async def on_proof(m: Message):
             await s.commit()
         except IntegrityError:
             await s.rollback()
-            await m.answer("⚠️ Этот скриншот уже использовался.")
+            await m.answer(t("proof.duplicate_short"))
             return
 
         user = await s.get(User, uid)
-        label = f"заказу #{obj.id}" if kind == "order" else f"пополнению #{obj.id}"
+        label = t("adm.label.order", id=obj.id) if kind == "order" else t("adm.label.topup", id=obj.id)
         if kind == "order":
-            what = (f"⭐ {obj.stars_count}" if obj.kind == "stars" else f"🎁 Premium {obj.months} мес.") + f" → @{T.esc(obj.recipient)}"
+            rcp = T.esc(obj.recipient)
+            what = (t("adm.what.stars", n=obj.stars_count, recipient=rcp) if obj.kind == "stars"
+                    else t("adm.what.premium", n=obj.months, recipient=rcp))
         else:
-            what = "👛 Пополнение баланса"
-        caption = (f"💳 <b>Платёж по {label}</b>\n"
-                   f"Клиент: {'@' + T.esc(user.username) if user.username else '—'} (<code>{uid}</code>)\n"
-                   f"{what}\n"
-                   f"Сумма: <b>{T.money(obj.total_cents)} TMT</b>\n"
-                   f"Номер: <code>{T.esc(obj.requisite)}</code>\n"
-                   f"Попытка {obj.proof_attempts}/{cfg.max_proof_attempts}")
+            what = t("adm.what.topup")
+        caption = t("adm.card", label=label, client=("@" + T.esc(user.username)) if user.username else "—", uid=uid,
+                    what=what, amount=T.money(obj.total_cents), number=T.esc(obj.requisite),
+                    attempt=obj.proof_attempts, max=cfg.max_proof_attempts)
         kb = K.admin_payment("o" if kind == "order" else "t", obj.id)
         try:
             if m.photo:
@@ -155,11 +154,11 @@ async def on_proof(m: Message):
             obj.status = "awaiting_payment"
             await s.delete(await s.get(ProofHash, digest))
             await s.commit()
-            await m.answer("⚠️ Не удалось передать скриншот на проверку. Попробуйте ещё раз чуть позже.")
+            await m.answer(t("proof.send_failed"))
             return
         obj.admin_msg_id = sent.message_id
         await s.commit()
-    await m.answer("✅ Скриншот получен и отправлен на проверку. Мы сообщим, как только платёж подтвердят.")
+    await m.answer(t("proof.received"))
 
 
 # ── решение админа в группе ──────────────────────────────────────────
@@ -175,7 +174,7 @@ async def _finish_card(cb: CallbackQuery, verdict: str) -> None:
 async def admin_decision(cb: CallbackQuery):
     cfg = get_settings()
     if cb.from_user.id not in cfg.admin_id_list:
-        await cb.answer("Нет доступа", show_alert=True)
+        await cb.answer(t("adm.alert.no_access"), show_alert=True)
         return
     _, action, kind, sid = cb.data.split(":")
     sid_i = int(sid)
@@ -184,8 +183,8 @@ async def admin_decision(cb: CallbackQuery):
     async with db.Session() as s:
         obj = await s.get(model, sid_i)
         if obj is None or obj.status != "proof_sent":
-            await cb.answer("Уже обработано", show_alert=True)
-            await _finish_card(cb, "ℹ️ Уже обработано")
+            await cb.answer(t("adm.alert.done_already"), show_alert=True)
+            await _finish_card(cb, t("adm.verdict.already"))
             return
         uid = obj.user_id
         if action == "ok":
@@ -198,18 +197,19 @@ async def admin_decision(cb: CallbackQuery):
             res = await s.execute(update(model).where(model.id == sid_i, model.status == "proof_sent").values(**values))
             if res.rowcount != 1:
                 await s.rollback()
-                await cb.answer("Уже обработано", show_alert=True)
+                await cb.answer(t("adm.alert.done_already"), show_alert=True)
                 return
             if kind == "t":
                 await credit_balance(s, uid, obj.total_cents)
             await s.commit()
             user = await s.get(User, uid)
             if kind == "o":
-                await safe_send(cb.bot, uid, f"✅ <b>Оплата заказа #{sid_i} подтверждена!</b>\nВыдаём товар — сообщим о результате.")
+                await send_to_user(cb.bot, uid, lambda: t("notify.order_approved", id=sid_i))
             else:
-                await safe_send(cb.bot, uid, f"✅ <b>Баланс пополнен на {T.money(obj.total_cents)} TMT.</b>\nТекущий баланс: {T.money(user.balance_cents)} TMT.")
-            await cb.answer("Подтверждено")
-            await _finish_card(cb, "✅ Подтверждено")
+                await send_to_user(cb.bot, uid, lambda: t("notify.topup_credited", amount=T.money(obj.total_cents),
+                                                                     balance=T.money(user.balance_cents)))
+            await cb.answer(t("adm.alert.approved"))
+            await _finish_card(cb, t("adm.verdict.approved"))
         else:
             final = obj.proof_attempts >= cfg.max_proof_attempts
             if final:
@@ -219,13 +219,13 @@ async def admin_decision(cb: CallbackQuery):
             res = await s.execute(update(model).where(model.id == sid_i, model.status == "proof_sent").values(**values))
             if res.rowcount != 1:
                 await s.rollback()
-                await cb.answer("Уже обработано", show_alert=True)
+                await cb.answer(t("adm.alert.done_already"), show_alert=True)
                 return
             await s.commit()
             left = cfg.max_proof_attempts - obj.proof_attempts
             if final:
-                await safe_send(cb.bot, uid, f"❌ Платёж #{sid_i} отклонён, попытки закончились. Если вы действительно оплатили — напишите в поддержку.")
+                await send_to_user(cb.bot, uid, lambda: t("notify.rejected_final", id=sid_i))
             else:
-                await safe_send(cb.bot, uid, f"❌ Платёж #{sid_i} не подтверждён: проверьте сумму и номер, затем отправьте скриншот перевода ещё раз. Осталось попыток: {left}.")
-            await cb.answer("Отклонено")
-            await _finish_card(cb, "❌ Отклонено")
+                await send_to_user(cb.bot, uid, lambda: t("notify.rejected_retry", id=sid_i, left=left))
+            await cb.answer(t("adm.alert.rejected"))
+            await _finish_card(cb, t("adm.verdict.rejected"))

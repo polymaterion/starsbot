@@ -12,6 +12,7 @@ from app import db, deps, keyboards as K, texts as T
 from app.config import get_settings
 from app.db import User
 from app.handlers.menu import show_main
+from app.i18n import t
 from app.services.hex_client import HexError
 from app.services.orders import InsufficientBalance, create_order, open_item
 from app.services.pricing import PriceUnavailable, make_quote
@@ -35,12 +36,11 @@ async def show_open_payment(bot, chat_id: int, ref: Ref | None, kind: str, obj) 
     cfg = get_settings()
     if obj.status == "proof_sent":
         await render(bot, ref, chat_id, "payment",
-                     f"🔎 <b>Платёж #{obj.id} на проверке</b>\n\nОжидайте подтверждения — обычно это быстро. "
-                     "Новый заказ можно создать после проверки.", K.waiting_check())
+                     t("review.screen", id=obj.id), K.waiting_check())
         return
-    title = f"Оплата заказа #{obj.id}" if kind == "order" else f"Пополнение баланса #{obj.id}"
+    title = t("req.pay_title", id=obj.id) if kind == "order" else t("req.topup_title", id=obj.id)
     text = T.requisites(title, obj.total_cents, obj.requisite, cfg.payment_ttl_minutes,
-                        prefix="⚠️ У вас уже есть неоплаченный платёж. Оплатите его или отмените, чтобы создать новый.")
+                        prefix=t("req.existing_prefix"))
     await render(bot, ref, chat_id, "payment", text, K.cancel_payment("o" if kind == "order" else "t", obj.id))
 
 
@@ -49,15 +49,15 @@ async def show_step(bot, state: FSMContext, chat_id: int, n: int, note: str = ""
     kind = d["kind"]
     if n == 1:
         await state.set_state(Buy.username)
-        who = "звёзды" if kind == "stars" else "Premium"
+        prompt = t("step.username.stars" if kind == "stars" else "step.username.premium")
         await draw(bot, state, chat_id, kind,
-                   T.step(kind, 1, prompt=f"✏️ Введите юзернейм пользователя, которому хотите отправить {who}:", note=note),
+                   T.step(kind, 1, prompt=prompt, note=note),
                    K.step1())
     elif n == 2 and kind == "stars":
         cfg = get_settings()
         await state.set_state(Buy.quantity)
         await draw(bot, state, chat_id, kind,
-                   T.step(kind, 2, d.get("username"), prompt=f"✏️ Введите количество звёзд ({cfg.stars_min}–{cfg.stars_max}):", note=note),
+                   T.step(kind, 2, d.get("username"), prompt=t("step.quantity", min=cfg.stars_min, max=cfg.stars_max), note=note),
                    K.step_back())
     elif n == 2:
         await state.set_state(Buy.confirm)
@@ -66,10 +66,10 @@ async def show_step(bot, state: FSMContext, chat_id: int, n: int, note: str = ""
                 prices = {m: (await make_quote(s, "premium", months=m)).base_cents for m in PERIODS}
         except (PriceUnavailable, HexError):
             await draw(bot, state, chat_id, kind,
-                       T.step(kind, 2, d.get("username"), note="⚠️ Цены временно недоступны. Попробуйте позже."), K.step_back())
+                       T.step(kind, 2, d.get("username"), note=t("warn.prices_unavailable")), K.step_back())
             return
         await draw(bot, state, chat_id, kind,
-                   T.step(kind, 2, d.get("username"), prompt="✏️ Выберите период Premium подписки:", note=note),
+                   T.step(kind, 2, d.get("username"), prompt=t("step.period"), note=note),
                    K.premium_periods(prices))
     else:
         await state.set_state(Buy.confirm)
@@ -79,7 +79,7 @@ async def show_step(bot, state: FSMContext, chat_id: int, n: int, note: str = ""
             except (PriceUnavailable, HexError):
                 await draw(bot, state, chat_id, kind,
                            T.step(kind, 2, d.get("username"), d.get("qty"), d.get("months"),
-                                  note="⚠️ Цены временно недоступны. Попробуйте позже."), K.step_back())
+                                  note=t("warn.prices_unavailable")), K.step_back())
                 return
             user = await s.get(User, d["uid"])
         await draw(bot, state, chat_id, "payment",
@@ -104,16 +104,16 @@ async def start_flow(cb: CallbackQuery, state: FSMContext):
 async def _accept_username(bot, state: FSMContext, chat_id: int, name: str) -> None:
     d = await state.get_data()
     if not USERNAME_RE.match(name):
-        await show_step(bot, state, chat_id, 1, "⚠️ Некорректный юзернейм. Он состоит из латинских букв, цифр и «_», от 5 до 32 символов.")
+        await show_step(bot, state, chat_id, 1, t("warn.bad_username"))
         return
     product = "stars" if d["kind"] == "stars" else "premium_3m"
     try:
         valid = await deps.hexc.check_recipient(product, name)
     except HexError:
-        await show_step(bot, state, chat_id, 1, "⚠️ Не удалось проверить получателя. Попробуйте ещё раз чуть позже.")
+        await show_step(bot, state, chat_id, 1, t("warn.check_failed"))
         return
     if not valid:
-        await show_step(bot, state, chat_id, 1, f"⚠️ Пользователь @{T.esc(name)} не найден или не может получить этот товар.")
+        await show_step(bot, state, chat_id, 1, t("warn.recipient_not_found", name=T.esc(name)))
         return
     await state.update_data(username=name)
     await show_step(bot, state, chat_id, 2)
@@ -129,11 +129,11 @@ async def got_username(m: Message, state: FSMContext):
 async def buy_for_self(cb: CallbackQuery, state: FSMContext):
     d = await state.get_data()
     if not d.get("kind"):
-        await cb.answer("Сессия устарела", show_alert=True)
+        await cb.answer(t("alert.session_expired"), show_alert=True)
         await show_main(cb.bot, cb.message.chat.id, Ref.of(cb.message))
         return
     if not cb.from_user.username:
-        await cb.answer("В вашем профиле Telegram не задан юзернейм. Создайте его в настройках или введите чужой.", show_alert=True)
+        await cb.answer(t("alert.no_username"), show_alert=True)
         return
     await cb.answer()
     await _accept_username(cb.bot, state, cb.message.chat.id, cb.from_user.username)
@@ -145,7 +145,7 @@ async def got_quantity(m: Message, state: FSMContext):
     cfg = get_settings()
     raw = m.text.strip().replace(" ", "")
     if not raw.isdigit() or not (cfg.stars_min <= int(raw) <= cfg.stars_max):
-        await show_step(m.bot, state, m.chat.id, 2, f"⚠️ Введите целое число от {cfg.stars_min} до {cfg.stars_max}.")
+        await show_step(m.bot, state, m.chat.id, 2, t("warn.bad_quantity", min=cfg.stars_min, max=cfg.stars_max))
         return
     await state.update_data(qty=int(raw))
     await show_step(m.bot, state, m.chat.id, 3)
@@ -156,7 +156,7 @@ async def pick_period(cb: CallbackQuery, state: FSMContext):
     d = await state.get_data()
     months = int(cb.data.split(":")[1])
     if not d.get("username") or months not in PERIODS:
-        await cb.answer("Сессия устарела", show_alert=True)
+        await cb.answer(t("alert.session_expired"), show_alert=True)
         await show_main(cb.bot, cb.message.chat.id, Ref.of(cb.message))
         return
     await cb.answer()
@@ -188,7 +188,7 @@ async def pay(cb: CallbackQuery, state: FSMContext):
     d = await state.get_data()
     kind, username = d.get("kind"), d.get("username")
     if not kind or not username or not (d.get("qty") or d.get("months")):
-        await cb.answer("Сессия устарела", show_alert=True)
+        await cb.answer(t("alert.session_expired"), show_alert=True)
         await state.clear()
         await show_main(cb.bot, cb.message.chat.id, Ref.of(cb.message))
         return
@@ -205,21 +205,20 @@ async def pay(cb: CallbackQuery, state: FSMContext):
         try:
             q = await make_quote(s, kind, stars=d.get("qty"), months=d.get("months"))
         except (PriceUnavailable, HexError):
-            await cb.answer("Цены временно недоступны, попробуйте позже", show_alert=True)
+            await cb.answer(t("alert.prices_unavailable"), show_alert=True)
             return
         try:
             o = await create_order(s, user_id=cb.from_user.id, kind=kind, recipient=username,
                                    stars=d.get("qty"), months=d.get("months"), quote=q, method=method)
         except InsufficientBalance:
-            await cb.answer("Недостаточно средств на балансе бота", show_alert=True)
+            await cb.answer(t("alert.no_funds"), show_alert=True)
             return
     await cb.answer()
     await state.clear()
     if method == "balance":
         await render(cb.bot, ref, cb.message.chat.id, "payment",
-                     f"✅ <b>Заказ #{o.id} оплачен с баланса</b>\n\nСписано: <b>{T.money(o.total_cents)} TMT</b>.\n"
-                     "Выдаём товар — это обычно занимает пару минут, мы сообщим о результате.", K.waiting_check())
+                     t("paid.balance", id=o.id, amount=T.money(o.total_cents)), K.waiting_check())
     else:
         await render(cb.bot, ref, cb.message.chat.id, "payment",
-                     T.requisites(f"Оплата заказа #{o.id}", o.total_cents, o.requisite, cfg.payment_ttl_minutes),
+                     T.requisites(t("req.pay_title", id=o.id), o.total_cents, o.requisite, cfg.payment_ttl_minutes),
                      K.cancel_payment("o", o.id))
