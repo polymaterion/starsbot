@@ -8,7 +8,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from app import db, deps
+from app import db, deps, i18n
 from app.emoji import PremiumEmojiMiddleware
 from app.config import get_settings
 from app.handlers import admin, flow, menu, payments
@@ -24,6 +24,14 @@ async def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)  # не светим URL с данными в логах
     cfg = get_settings()
+
+    langs = i18n.available_languages()
+    for lang in {cfg.bot_lang, cfg.admin_lang}:
+        if lang not in langs:
+            log.error("Язык %r не найден в %s (есть: %s). Используется %s.", lang, i18n.LOCALES_DIR, ", ".join(langs), i18n.BASE_LANG)
+    for problem in i18n.check_locales():
+        log.warning("locales: %s", problem)
+    log.info("language: клиенты=%s, админы=%s", cfg.bot_lang, cfg.admin_lang)
 
     await db.init_db(cfg.async_database_url)
     deps.hexc = HexClient(cfg.hex_api_key, cfg.hex_base_url)

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from app import i18n
 from app.config import get_settings
-from app.texts import MONTHS, money
+from app.i18n import t
+from app.texts import money, months_label
 
 
 def _kb(rows: list[list[tuple[str, str]]]) -> InlineKeyboardMarkup:
@@ -22,63 +24,72 @@ def _kb(rows: list[list[tuple[str, str]]]) -> InlineKeyboardMarkup:
 
 def main() -> InlineKeyboardMarkup:
     rows = [
-        [("⭐ Звезды", "stars"), ("🎁 Premium", "premium")],
-        [("👛 Баланс", "balance"), ("👤 Профиль", "profile")],
+        [(t("btn.stars"), "stars"), (t("btn.premium"), "premium")],
+        [(t("btn.balance"), "balance"), (t("btn.profile"), "profile")],
     ]
     link = get_settings().support_link
     if link:  # URL-кнопка с прямой ссылкой из SUPPORT_URL
-        rows.append([("💬 Поддержка", f"url:{link}")])
+        rows.append([(t("btn.support"), f"url:{link}")])
     return _kb(rows)
 
 
 def back(to: str = "menu") -> InlineKeyboardMarkup:
-    return _kb([[("‹ Назад", to)]])
+    return _kb([[(t("btn.back"), to)]])
 
 
 def step1() -> InlineKeyboardMarkup:
-    return _kb([[("👤 Купить для себя", "self")], [("‹ Назад", "back")]])
+    return _kb([[(t("btn.self"), "self")], [(t("btn.back"), "back")]])
 
 
 def step_back() -> InlineKeyboardMarkup:
-    return _kb([[("‹ Назад", "back")]])
+    return _kb([[(t("btn.back"), "back")]])
 
 
 def premium_periods(prices: dict[int, int]) -> InlineKeyboardMarkup:
-    rows = [[(f"На {MONTHS[m].replace('1 год', '1 год')} · {money(c)} TMT", f"prem:{m}")] for m, c in prices.items()]
-    rows.append([("‹ Назад", "back")])
+    rows = [[(t("btn.period", period=months_label(m), price=money(c)), f"prem:{m}")] for m, c in prices.items()]
+    rows.append([(t("btn.back"), "back")])
     return _kb(rows)
 
 
 def pay_methods(balance_cents: int) -> InlineKeyboardMarkup:
     return _kb([
-        [("💳 Перевод с баланса оператора", "pay:tr")],
-        [(f"👛 С баланса бота · {money(balance_cents)} TMT", "pay:bal")],
-        [("‹ Назад", "back")],
+        [(t("btn.pay_transfer"), "pay:tr")],
+        [(t("btn.pay_balance", amount=money(balance_cents)), "pay:bal")],
+        [(t("btn.back"), "back")],
     ])
 
 
 def cancel_payment(kind: str, item_id: int) -> InlineKeyboardMarkup:
-    return _kb([[("🚫 Отменить", f"cancel:{kind}:{item_id}")], [("‹ В меню", "menu")]])
+    return _kb([[(t("btn.cancel"), f"cancel:{kind}:{item_id}")], [(t("btn.to_menu"), "menu")]])
 
 
 def waiting_check() -> InlineKeyboardMarkup:
-    return _kb([[("‹ В меню", "menu")]])
+    return _kb([[(t("btn.to_menu"), "menu")]])
 
 
 def balance_menu() -> InlineKeyboardMarkup:
-    return _kb([[("➕ Пополнить баланс", "topup")], [("‹ Назад", "menu")]])
+    return _kb([[(t("btn.topup"), "topup")], [(t("btn.back"), "menu")]])
 
 
 def profile_menu(history_count: int) -> InlineKeyboardMarkup:
-    return _kb([[(f"🧾 История покупок ({history_count})", "history")], [("‹ Назад", "menu")]])
+    lang_label = t("btn.language", name=i18n.language_name(i18n.current_lang()))
+    return _kb([[(t("btn.history", n=history_count), "history")], [(lang_label, "lang")], [(t("btn.back"), "menu")]])
 
 
+def language_menu() -> InlineKeyboardMarkup:
+    """Список всех языков из locales/; текущий отмечен галочкой."""
+    cur = i18n.current_lang()
+    rows = [[(("✅ " if code == cur else "") + i18n.language_name(code), f"lang:{code}")]
+            for code in i18n.available_languages()]
+    rows.append([(t("btn.back"), "profile")])
+    return _kb(rows)
 
 
 def admin_payment(kind: str, item_id: int) -> InlineKeyboardMarkup:
-    return _kb([[("✅ Подтвердить", f"adm:ok:{kind}:{item_id}"), ("❌ Отклонить", f"adm:no:{kind}:{item_id}")]])
+    return _kb([[(t("adm.btn.approve"), f"adm:ok:{kind}:{item_id}"),
+                 (t("adm.btn.reject"), f"adm:no:{kind}:{item_id}")]])
 
 
 def price_review(order_id: int) -> InlineKeyboardMarkup:
-    return _kb([[("✅ Выполнить по новой цене", f"pr:ok:{order_id}")],
-                [("↩️ Отменить и вернуть деньги", f"pr:no:{order_id}")]])
+    return _kb([[(t("adm.btn.price_ok"), f"pr:ok:{order_id}")],
+                [(t("adm.btn.price_no"), f"pr:no:{order_id}")]])

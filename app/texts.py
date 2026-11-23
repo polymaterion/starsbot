@@ -1,24 +1,22 @@
+"""Сборка экранов. Все слова берутся из locales/*.json через i18n.t()."""
 from __future__ import annotations
 
 import html
 from decimal import Decimal
 
 from app.config import get_settings
+from app.i18n import t
 
-MONTHS = {3: "3 месяца", 6: "6 месяцев", 12: "1 год"}
 
-STATUS_RU = {
-    "awaiting_payment": "⏳ Ожидает оплаты",
-    "proof_sent": "🔎 Платёж на проверке",
-    "approved": "⚙️ В работе",
-    "hex_waiting": "⚙️ В работе",
-    "price_review": "⚙️ В работе",
-    "delivering": "🚚 Доставляется",
-    "done": "✅ Выполнен",
-    "failed": "❌ Не выполнен, деньги на балансе",
-    "cancelled": "🚫 Отменён",
-    "rejected": "🚫 Платёж отклонён",
-}
+def months_label(m: int) -> str:
+    return t(f"months.{m}")
+
+
+def status(s: str, admin: bool = False) -> str:
+    """Подпись статуса заказа (admin=True — на языке админа)."""
+    key = ("adm." if admin else "") + f"status.{s}"
+    label = t(key)
+    return s if label == key else label
 
 
 def money(cents: int) -> str:
@@ -39,26 +37,21 @@ def tree(lines: list[str]) -> str:
 
 
 def order_lines(kind: str, recipient: str | None, qty: int | None, months: int | None) -> list[str]:
-    r = f"@{esc(recipient)}" if recipient else "Не выбран"
+    r = t("order.recipient", value=f"@{esc(recipient)}" if recipient else t("order.recipient.none"))
     if kind == "stars":
-        return ["Тип: <b>Telegram Stars</b>", f"Получатель: <b>{r}</b>",
-                f"Количество: <b>{qty if qty else 'Не выбрано'}</b>"]
-    return ["Тип: <b>Telegram Premium</b>", f"Получатель: <b>{r}</b>",
-            f"Период: <b>{MONTHS.get(months, 'Не выбран') if months else 'Не выбран'}</b>"]
+        return [t("order.type.stars"), r,
+                t("order.quantity", value=qty if qty else t("order.quantity.none"))]
+    return [t("order.type.premium"), r,
+            t("order.period", value=months_label(months) if months else t("order.period.none"))]
 
 
 def head(kind: str, step: int) -> str:
     icon = "⭐" if kind == "stars" else "🎁"
-    return f"{icon} <b>Оформление заявки [{step}/3]</b>"
+    return t("order.head", icon=icon, step=step)
 
 
 def main_menu() -> str:
-    return (
-        f"👋 <b>Добро пожаловать в {esc(get_settings().bot_name)}!</b>\n\n"
-        "Через нашего бота вы можете купить ⭐ Звезды и 🎁 Premium по низким ценам. "
-        "Оплата в манатах переводом с баланса мобильного оператора.\n\n"
-        "⬇️ Выберите нужный раздел в меню ниже"
-    )
+    return t("main.welcome", bot_name=esc(get_settings().bot_name))
 
 
 def step(kind: str, n: int, recipient=None, qty=None, months=None, prompt: str = "", note: str = "") -> str:
@@ -72,12 +65,10 @@ def step(kind: str, n: int, recipient=None, qty=None, months=None, prompt: str =
 
 def payment_methods(kind, recipient, qty, months, base_cents: int, note: str = "") -> str:
     parts = [head(kind, 3), "", tree(order_lines(kind, recipient, qty, months)), "",
-             f"💰 Стоимость: <b>{money(base_cents)} TMT</b>",
-             "<i>Итоговая сумма перевода может отличаться на несколько копеек — "
-             "по ней мы опознаём ваш платёж.</i>"]
+             t("pay.cost", price=money(base_cents)), t("pay.tail_note")]
     if note:
         parts += ["", note]
-    parts += ["", "💳 Выберите способ оплаты:"]
+    parts += ["", t("pay.choose")]
     return "\n".join(parts)
 
 
@@ -88,30 +79,21 @@ def requisites(title: str, total_cents: int, number: str | None, ttl_min: int, p
         parts += [prefix, ""]
     parts += [
         f"💳 <b>{title}</b>", "",
-        f"Переведите ровно <b>{money(total_cents)} TMT</b> с баланса мобильного оператора на номер:",
-        f"<code>{esc(number) if number else 'номер не настроен'}</code>",
+        t("req.transfer", amount=money(total_cents)),
+        f"<code>{esc(number) if number else t('req.no_number')}</code>",
     ]
     if cfg.pay_note:
         parts.append(esc(cfg.pay_note))
-    parts += [
-        "", "⚠️ Сумма должна совпадать <b>до копейки</b>.",
-        "После перевода отправьте <b>скриншот</b> (чек или SMS) в этот чат.",
-        f"⏱ Платёж действителен {ttl_min} мин.",
-    ]
+    parts += ["", t("req.exact"), t("req.send_proof"), t("req.ttl", ttl=ttl_min)]
     return "\n".join(parts)
 
 
 def profile(user_id: int, username: str | None, balance: int, total: int, stars: int, months: int, reg: str) -> str:
-    return (
-        "👤 <b>Ваш профиль</b>\n\n"
-        f"Баланс: <b>{money(balance)} TMT</b>\n"
-        f"Telegram ID: <code>{user_id}</code>\n"
-        f"Username: {'@' + esc(username) if username else '—'}\n\n"
-        "📊 <b>Статистика покупок:</b>\n"
-        f"{tree([f'Всего покупок: {total}', f'Звёзд куплено: {stars}', f'Месяцев Premium: {months}'])}\n\n"
-        f"📅 Регистрация: {reg}"
-    )
+    stats = tree([t("profile.stat.total", n=total), t("profile.stat.stars", n=stars),
+                  t("profile.stat.months", n=months)])
+    return t("profile.screen", balance=money(balance), id=user_id,
+             username="@" + esc(username) if username else "—", stats=stats, reg=reg)
 
 
 def balance(cents: int) -> str:
-    return f"👛 <b>Баланс в боте</b>\n\nНа счету: <b>{money(cents)} TMT</b>\n\nБаланс можно тратить на заказы без подтверждения."
+    return t("balance.screen", amount=money(cents))

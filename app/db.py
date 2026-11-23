@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, inspect, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.pool import StaticPool
+
+log = logging.getLogger(__name__)
 
 Session: async_sessionmaker[AsyncSession]
 engine = None
@@ -26,6 +29,7 @@ class User(Base):
     username: Mapped[str | None] = mapped_column(String(64), nullable=True)
     balance_cents: Mapped[int] = mapped_column(BigInteger, default=0)
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False)
+    lang: Mapped[str | None] = mapped_column(String(8), nullable=True)   # выбранный язык; None — язык по умолчанию
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
@@ -114,3 +118,12 @@ async def init_db(url: str) -> None:
     Session = async_sessionmaker(engine, expire_on_commit=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _migrate(conn)
+
+
+async def _migrate(conn) -> None:
+    """Мини-миграции: create_all не добавляет колонки в уже существующие таблицы."""
+    cols = await conn.run_sync(lambda c: [col["name"] for col in inspect(c).get_columns("users")])
+    if "lang" not in cols:
+        await conn.execute(text("ALTER TABLE users ADD COLUMN lang VARCHAR(8)"))
+        log.info("migration: added users.lang")

@@ -4,6 +4,7 @@ import re
 from decimal import Decimal
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,6 +17,8 @@ class Settings(BaseSettings):
     admin_group_id: int
     support_url: str = ""
     premium_emoji: bool = True
+    bot_language: str = "ru"
+    admin_language: str = ""
 
     database_url: str
 
@@ -41,9 +44,27 @@ class Settings(BaseSettings):
     worker_interval_sec: int = 5
     poll_min_interval_sec: int = 8
 
+    @field_validator(
+        "default_rate_tmt_per_rub", "default_markup_percent", "price_guard_percent",
+        "topup_min_tmt", "topup_max_tmt", "hex_low_balance_rub", mode="before",
+    )
+    @classmethod
+    def _decimal_comma(cls, v):
+        """В .env допускаем и «0,2353», и «0.2353»."""
+        return v.strip().replace(",", ".") if isinstance(v, str) else v
+
     @property
     def admin_id_list(self) -> list[int]:
         return [int(x) for x in self.admin_ids.replace(" ", "").split(",") if x]
+
+    @property
+    def bot_lang(self) -> str:
+        return self.bot_language.strip().lower() or "ru"
+
+    @property
+    def admin_lang(self) -> str:
+        """Язык админских сообщений; пусто — как у клиентов."""
+        return self.admin_language.strip().lower() or self.bot_lang
 
     @property
     def support_link(self) -> str:

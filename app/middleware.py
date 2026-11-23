@@ -5,8 +5,9 @@ from typing import Any, Awaitable, Callable
 from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
-from app import db
+from app import db, i18n
 from app.config import get_settings
+from app.i18n import t
 from app.db import User
 
 
@@ -27,9 +28,13 @@ class UserMiddleware(BaseMiddleware):
             await s.commit()
         if user.is_banned and tg.id not in get_settings().admin_id_list:
             if isinstance(event, CallbackQuery):
-                await event.answer("Доступ ограничен", show_alert=True)
+                await event.answer(t("ban.alert"), show_alert=True)
             elif isinstance(event, Message):
-                await event.answer("Доступ ограничен. Обратитесь в поддержку.")
+                await event.answer(t("ban.message"))
             return None
         data["db_user"] = user
-        return await handler(event, data)
+        token = i18n.push_user_lang(user.lang)
+        try:
+            return await handler(event, data)
+        finally:
+            i18n.pop_user_lang(token)
