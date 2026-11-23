@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 from aiogram import F, Router
-from aiogram.filters import CommandStart, StateFilter
+from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
-from app import db, keyboards as K, texts as T
+from app import db, i18n, keyboards as K, texts as T
 from app.db import Order, User
-from app.ui import Ref, render, try_delete
+from app.i18n import t
+from app.ui import Ref, render
 
 router = Router()
 router.message.filter(F.chat.type == "private")
@@ -32,9 +33,7 @@ async def cb_menu(cb: CallbackQuery, state: FSMContext):
     await show_main(cb.bot, cb.message.chat.id, Ref.of(cb.message))
 
 
-@router.callback_query(F.data == "profile")
-async def cb_profile(cb: CallbackQuery):
-    await cb.answer()
+async def render_profile(cb: CallbackQuery) -> None:
     uid = cb.from_user.id
     async with db.Session() as s:
         user = await s.get(User, uid)
@@ -49,24 +48,51 @@ async def cb_profile(cb: CallbackQuery):
                  K.profile_menu(history or 0))
 
 
+@router.callback_query(F.data == "profile")
+async def cb_profile(cb: CallbackQuery):
+    await cb.answer()
+    await render_profile(cb)
+
+
+@router.callback_query(F.data == "lang")
+async def cb_lang(cb: CallbackQuery):
+    await cb.answer()
+    await render(cb.bot, Ref.of(cb.message), cb.message.chat.id, "profile", t("lang.screen"), K.language_menu())
+
+
+@router.callback_query(F.data.startswith("lang:"))
+async def cb_set_lang(cb: CallbackQuery):
+    code = cb.data.split(":", 1)[1]
+    if code not in i18n.available_languages():
+        await cb.answer(t("alert.stale_button"))
+        return
+    async with db.Session() as s:
+        await s.execute(update(User).where(User.id == cb.from_user.id).values(lang=code))
+        await s.commit()
+    i18n.set_current_lang(code)           # дальше этот же апдейт рисуется уже на новом языке
+    await cb.answer(t("lang.changed"))
+    await render_profile(cb)
+
+
 @router.callback_query(F.data == "history")
 async def cb_history(cb: CallbackQuery):
     await cb.answer()
     async with db.Session() as s:
         rows = (await s.scalars(select(Order).where(Order.user_id == cb.from_user.id).order_by(Order.id.desc()).limit(10))).all()
     if not rows:
-        body = "Покупок пока нет."
+        body = t("history.empty")
     else:
         lines = []
         for o in rows:
-            what = f"⭐ {o.stars_count}" if o.kind == "stars" else f"🎁 {o.months} мес."
-            lines.append(f"#{o.id} · {what} → @{T.esc(o.recipient)} · {T.money(o.total_cents)} TMT\n    {T.STATUS_RU.get(o.status, o.status)} · {o.created_at:%d.%m}")
+            what = t("history.stars", n=o.stars_count) if o.kind == "stars" else t("history.premium", n=o.months)
+            lines.append(t("history.item", id=o.id, what=what, recipient=T.esc(o.recipient),
+                           price=T.money(o.total_cents), status=T.status(o.status), date=f"{o.created_at:%d.%m}"))
         body = "\n".join(lines)
     await render(cb.bot, Ref.of(cb.message), cb.message.chat.id, "profile",
-                 f"🧾 <b>История покупок</b> (последние 10)\n\n{body}", K.back("profile"))
+                 t("history.title", body=body), K.back("profile"))
 
 
-@router.message(StateFilter(None), F.text)
-async def fallback_text(m: Message):
-    await try_delete(m)
-    await show_main(m.bot, m.chat.id, None)
+@router.callback_query()
+async def stale_callback(cb: CallbackQuery):
+    """Кнопка от старого сообщения (например, удалённая «Поддержка» из прежнего меню): не оставляем «часики»."""
+    await cb.answer(t("alert.stale_button"))
