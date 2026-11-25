@@ -30,7 +30,7 @@ def test_apply_button_moves_emoji_to_icon():
 
 
 def test_all_client_emoji_have_ids():
-    assert len(E.EMOJI_IDS) == 25 and all(v.isdigit() for v in E.EMOJI_IDS.values())
+    assert len(E.EMOJI_IDS) == 28 and all(v.isdigit() for v in E.EMOJI_IDS.values())
 
 
 async def test_middleware_retries_plain_when_telegram_rejects():

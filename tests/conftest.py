@@ -3,7 +3,7 @@ import os
 os.environ.update({
     "BOT_TOKEN": "1:test", "DATABASE_URL": "sqlite+aiosqlite:///:memory:", "HEX_API_KEY": "k",
     "ADMIN_GROUP_ID": "-100", "ADMIN_IDS": "1,2", "PAY_NUMBERS": "99361000001,99361000002",
-    "POLL_MIN_INTERVAL_SEC": "0", "SUPPORT_URL": "@test_support",
+    "POLL_MIN_INTERVAL_SEC": "0", "SUPPORT_URL": "@test_support", "ASK_LANGUAGE_ON_START": "false",
 })
 
 import pytest

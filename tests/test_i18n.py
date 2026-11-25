@@ -50,7 +50,8 @@ def test_every_key_used_in_code_exists_and_none_are_orphaned():
 
 def test_turkmen_uses_turkmen_alphabet_not_cyrillic():
     tk = json.loads((ROOT / "locales" / "tk.json").read_text(encoding="utf-8"))
-    assert not [k for k, v in tk.items() if CYR.search(v)]
+    # lang.first (экран выбора при первом /start) двуязычный намеренно: язык клиента ещё неизвестен
+    assert not [k for k, v in tk.items() if CYR.search(v) and k != "lang.first"]
 
 
 # ───────── поведение i18n ─────────

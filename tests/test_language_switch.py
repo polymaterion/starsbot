@@ -54,11 +54,12 @@ async def buy_stars(h, uid, order_id, username):
 async def test_profile_shows_language_button_and_language_list(h):
     await h.click(100, "profile")
     btns = {b.callback_data: b for b in buttons(h.session.of(EditMessageMedia)[-1].reply_markup)}
-    assert "lang" in btns and "Русский" in btns["lang"].text
+    assert btns["lang"].text == "🌐 Язык"                   # название языка в кнопке профиля больше не показываем
+    assert "Русский" not in btns["lang"].text and "Türkmençe" not in btns["lang"].text
 
     await h.click(100, "lang")
     langs = {b.callback_data: b.text for b in buttons(h.session.of(EditMessageMedia)[-1].reply_markup)}
-    assert langs["lang:ru"] == "✅ 🇷🇺 Русский"            # текущий отмечен
+    assert langs["lang:ru"] == "🇷🇺 Русский ✅"            # текущий отмечен галочкой в конце
     assert langs["lang:tk"] == "🇹🇲 Türkmençe"
     assert "profile" in langs                               # кнопка «Назад» в профиль
 
@@ -168,3 +169,109 @@ async def test_migration_adds_lang_column_to_existing_database(tmp_path):
     async with db.Session() as s:
         assert (await s.get(User, 5)).lang == "tk"
     await db.engine.dispose()
+
+
+# ───────── название языка только внутри вкладки «Язык» ─────────
+async def test_language_name_is_shown_only_inside_the_language_tab(h):
+    await h.click(100, "profile")
+    profile_kb = h.session.of(EditMessageMedia)[-1].reply_markup
+    assert all("Русский" not in b.text and "Türkmençe" not in b.text for b in buttons(profile_kb))
+    await h.click(100, "lang")
+    media = h.session.of(EditMessageMedia)[-1]
+    assert "Текущий язык: <b>🇷🇺 Русский</b>" in media.media.caption       # название — на экране вкладки
+    await set_lang(100, "tk")
+    await h.click(100, "lang")
+    assert "Häzirki dil: <b>🇹🇲 Türkmençe</b>" in h.session.of(EditMessageMedia)[-1].media.caption
+
+
+async def test_default_language_is_listed_first(h):
+    i18n.use("tk")
+    await h.click(100, "lang")
+    order = [b.callback_data for b in buttons(h.session.of(EditMessageMedia)[-1].reply_markup)][:2]
+    assert order == ["lang:tk", "lang:ru"]
+    i18n.use("ru")
+    await h.click(100, "lang")
+    assert [b.callback_data for b in buttons(h.session.of(EditMessageMedia)[-1].reply_markup)][:2] == ["lang:ru", "lang:tk"]
+
+
+# ───────── выбор языка при первом /start ─────────
+@pytest.fixture
+def ask(monkeypatch):
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "ask_language_on_start", True)
+
+
+async def test_first_start_asks_for_language_then_shows_menu(h, ask):
+    await h.say(500, "/start", username="brand_new")
+    photo = h.session.of(SendPhoto)[-1]
+    assert "Dil saýlaň / Выберите язык" in photo.caption                    # двуязычный экран
+    kb = {b.callback_data: b.text for b in buttons(photo.reply_markup)}
+    assert kb == {"langs:ru": "🇷🇺 Русский", "langs:tk": "🇹🇲 Türkmençe"}   # без «Назад» и без галочки
+    assert await lang_of(500) is None
+
+    await h.click(500, "langs:tk", username="brand_new")
+    assert await lang_of(500) == "tk"
+    assert h.session.of(AnswerCallbackQuery)[-1].text == "Dil üýtgedildi"
+    assert "Hoş geldiňiz" in h.session.of(EditMessageMedia)[-1].media.caption   # сразу главное меню на выбранном языке
+
+    n = len(h.session.calls)
+    await h.say(500, "/start", username="brand_new")                          # второй /start: выбор больше не просят
+    assert "Hoş geldiňiz" in h.session.of(SendPhoto)[-1].caption and len(h.session.calls) > n
+
+
+async def test_first_start_picker_skipped_for_users_who_already_chose(h, ask):
+    await set_lang(600, "ru")
+    await h.say(600, "/start", username="chose_before")
+    assert "Добро пожаловать" in h.session.of(SendPhoto)[-1].caption
+
+
+async def test_picker_is_shown_again_for_removed_language_and_for_legacy_users(h, ask):
+    await set_lang(601, "xx")                                                  # язык, которого больше нет в locales/
+    await h.say(601, "/start", username="stale_lang")
+    assert "Dil saýlaň / Выберите язык" in h.session.of(SendPhoto)[-1].caption
+    await h.say(100, "/start")                                                 # клиент из базы со времён до выбора языка (lang=NULL)
+    assert "Dil saýlaň / Выберите язык" in h.session.of(SendPhoto)[-1].caption
+
+
+async def test_first_start_rejects_unknown_language_code(h, ask):
+    await h.say(602, "/start", username="someone_x")
+    await h.click(602, "langs:xx", username="someone_x")
+    assert await lang_of(602) is None
+    assert "устарела" in h.session.of(AnswerCallbackQuery)[-1].text
+
+
+async def test_picker_can_be_switched_off(h, monkeypatch):
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "ask_language_on_start", False)
+    await h.say(603, "/start", username="no_picker")
+    assert "Добро пожаловать" in h.session.of(SendPhoto)[-1].caption
+
+
+# ───────── премиум-эмодзи языка и флагов ─────────
+async def test_premium_emoji_for_language_icon_and_flags(env):
+    deps.catalog = Catalog(deps.hexc)
+    hp = Harness(premium=True)
+    await hp.click(100, "profile")
+    prof = {b.callback_data: b for b in buttons(hp.session.of(EditMessageMedia)[-1].reply_markup)}
+    assert prof["lang"].text == "Язык" and prof["lang"].icon_custom_emoji_id == "5879585266426973039"   # 🌐
+
+    await hp.click(100, "lang")
+    media = hp.session.of(EditMessageMedia)[-1]
+    assert '<tg-emoji emoji-id="5879585266426973039">🌐</tg-emoji>' in media.media.caption           # 🌐 в заголовке
+    assert '<tg-emoji emoji-id="5291734595862018096">🇷🇺</tg-emoji>' in media.media.caption           # флаг в тексте
+    langs = {b.callback_data: b for b in buttons(media.reply_markup)}
+    assert langs["lang:ru"].icon_custom_emoji_id == "5291734595862018096" and langs["lang:ru"].text == "Русский ✅"
+    assert langs["lang:tk"].icon_custom_emoji_id == "5292055356904585500" and langs["lang:tk"].text == "Türkmençe"
+
+
+async def test_premium_emoji_on_first_start_picker(env, monkeypatch):
+    from app.config import get_settings
+    monkeypatch.setattr(get_settings(), "ask_language_on_start", True)
+    deps.catalog = Catalog(deps.hexc)
+    hp = Harness(premium=True)
+    await hp.say(700, "/start", username="fresh_user")
+    photo = hp.session.of(SendPhoto)[-1]
+    assert '<tg-emoji emoji-id="5879585266426973039">🌐</tg-emoji>' in photo.caption
+    langs = {b.callback_data: b for b in buttons(photo.reply_markup)}
+    assert langs["langs:ru"].icon_custom_emoji_id == "5291734595862018096" and langs["langs:ru"].text == "Русский"
+    assert langs["langs:tk"].icon_custom_emoji_id == "5292055356904585500" and langs["langs:tk"].text == "Türkmençe"
