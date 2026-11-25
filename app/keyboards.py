@@ -72,16 +72,19 @@ def balance_menu() -> InlineKeyboardMarkup:
 
 
 def profile_menu(history_count: int) -> InlineKeyboardMarkup:
-    lang_label = t("btn.language", name=i18n.language_name(i18n.current_lang()))
-    return _kb([[(t("btn.history", n=history_count), "history")], [(lang_label, "lang")], [(t("btn.back"), "menu")]])
+    return _kb([[(t("btn.history", n=history_count), "history")], [(t("btn.language"), "lang")],
+                [(t("btn.back"), "menu")]])
 
 
-def language_menu() -> InlineKeyboardMarkup:
-    """Список всех языков из locales/; текущий отмечен галочкой."""
+def language_menu(first: bool = False) -> InlineKeyboardMarkup:
+    """Список языков из locales/. first=True: экран первого /start (без «Назад», после выбора откроется меню);
+    иначе вкладка «Язык» в профиле, текущий язык отмечен галочкой."""
     cur = i18n.current_lang()
-    rows = [[(("✅ " if code == cur else "") + i18n.language_name(code), f"lang:{code}")]
-            for code in i18n.available_languages()]
-    rows.append([(t("btn.back"), "profile")])
+    prefix = "langs" if first else "lang"
+    rows = [[(i18n.language_name(code) + (" ✅" if not first and code == cur else ""), f"{prefix}:{code}")]
+            for code in i18n.ordered_languages()]
+    if not first:
+        rows.append([(t("btn.back"), "profile")])
     return _kb(rows)
 
 
