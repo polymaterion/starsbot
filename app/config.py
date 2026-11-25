@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     premium_emoji: bool = True
     bot_language: str = "ru"
     admin_language: str = ""
+    ask_language_on_start: bool = True
 
     database_url: str
 

@@ -102,6 +102,12 @@ def current_lang() -> str:
     return _lang_for("client.key")
 
 
+def ordered_languages() -> list[str]:
+    """Языки для кнопок выбора: язык по умолчанию первым, остальные по алфавиту."""
+    default = (_override["bot"] if _override else get_settings().bot_lang)
+    return sorted(available_languages(), key=lambda code: (code != default, code))
+
+
 def language_name(lang: str) -> str:
     """Название языка на нём самом (ключ lang.name в файле языка)."""
     return _load(lang).get("lang.name", lang)
