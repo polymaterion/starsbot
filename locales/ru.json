@@ -26,7 +26,7 @@
   "btn.cancel": "🚫 Отменить",
   "btn.topup": "➕ Пополнить баланс",
   "btn.history": "🧾 История покупок ({n})",
-  "btn.language": "🌐 Язык: {name}",
+  "btn.language": "🌐 Язык",
   "main.welcome": "👋 <b>Добро пожаловать в {bot_name}!</b>\n\nЧерез нашего бота вы можете купить ⭐ Звезды и 🎁 Premium по низким ценам. Оплата в манатах переводом с баланса мобильного оператора.\n\n⬇️ Выберите нужный раздел в меню ниже",
   "order.head": "{icon} <b>Оформление заявки [{step}/3]</b>",
   "order.type.stars": "Тип: <b>Telegram Stars</b>",
@@ -171,6 +171,7 @@
   "adm.fmt.credit": "Формат: /credit ID сумма",
   "adm.credited": "Начислено {amount} TMT клиенту {uid}.",
   "lang.name": "🇷🇺 Русский",
-  "lang.screen": "🌐 <b>Язык</b>\n\nВыберите язык бота:",
-  "lang.changed": "Язык изменён"
+  "lang.screen": "🌐 <b>Язык</b>\n\nТекущий язык: <b>{name}</b>\nВыберите язык бота:",
+  "lang.changed": "Язык изменён",
+  "lang.first": "🌐 <b>Dil saýlaň / Выберите язык</b>"
 }

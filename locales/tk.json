@@ -26,7 +26,7 @@
   "btn.cancel": "🚫 Ýatyrmak",
   "btn.topup": "➕ Balansy doldurmak",
   "btn.history": "🧾 Satyn alyşlar taryhy ({n})",
-  "btn.language": "🌐 Dil: {name}",
+  "btn.language": "🌐 Dil",
   "main.welcome": "👋 <b>Hoş geldiňiz!</b>\n\n<b>{bot_name}</b> arkaly ⭐ Ýyldyzlary we 🎁 Premium abunasyny arzan bahadan satyn alyp bilersiňiz. Töleg manatda, mobil operatoryň balansyndan pul geçirmek bilen amala aşyrylýar.\n\n⬇️ Aşakdaky menýudan gerekli bölümi saýlaň",
   "order.head": "{icon} <b>Sargyt bermek [{step}/3]</b>",
   "order.type.stars": "Görnüşi: <b>Telegram Stars</b>",
@@ -171,6 +171,7 @@
   "adm.fmt.credit": "Format: /credit ID mukdar",
   "adm.credited": "{uid} müşderä {amount} TMT goşuldy.",
   "lang.name": "🇹🇲 Türkmençe",
-  "lang.screen": "🌐 <b>Dil</b>\n\nBotyň dilini saýlaň:",
-  "lang.changed": "Dil üýtgedildi"
+  "lang.screen": "🌐 <b>Dil</b>\n\nHäzirki dil: <b>{name}</b>\nBotyň dilini saýlaň:",
+  "lang.changed": "Dil üýtgedildi",
+  "lang.first": "🌐 <b>Dil saýlaň / Выберите язык</b>"
 }
