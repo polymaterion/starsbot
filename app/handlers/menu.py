@@ -7,6 +7,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy import func, select, update
 
 from app import db, i18n, keyboards as K, texts as T
+from app.config import get_settings
 from app.db import Order, User
 from app.i18n import t
 from app.ui import Ref, render
@@ -21,8 +22,12 @@ async def show_main(bot, chat_id: int, ref: Ref | None, note: str = "") -> None:
 
 
 @router.message(CommandStart())
-async def cmd_start(m: Message, state: FSMContext):
+async def cmd_start(m: Message, state: FSMContext, db_user: User):
     await state.clear()
+    if get_settings().ask_language_on_start and db_user.lang not in i18n.available_languages():
+        # язык ещё не выбран (новый клиент, клиент до появления выбора языка или удалённый язык): спрашиваем
+        await render(m.bot, None, m.chat.id, "main", t("lang.first"), K.language_menu(first=True))
+        return
     await show_main(m.bot, m.chat.id, None)
 
 
@@ -57,21 +62,36 @@ async def cb_profile(cb: CallbackQuery):
 @router.callback_query(F.data == "lang")
 async def cb_lang(cb: CallbackQuery):
     await cb.answer()
-    await render(cb.bot, Ref.of(cb.message), cb.message.chat.id, "profile", t("lang.screen"), K.language_menu())
+    name = i18n.language_name(i18n.current_lang())      # название языка показываем только здесь, во вкладке «Язык»
+    await render(cb.bot, Ref.of(cb.message), cb.message.chat.id, "profile", t("lang.screen", name=name),
+                 K.language_menu())
 
 
-@router.callback_query(F.data.startswith("lang:"))
-async def cb_set_lang(cb: CallbackQuery):
+async def _save_lang(cb: CallbackQuery) -> bool:
     code = cb.data.split(":", 1)[1]
     if code not in i18n.available_languages():
         await cb.answer(t("alert.stale_button"))
-        return
+        return False
     async with db.Session() as s:
         await s.execute(update(User).where(User.id == cb.from_user.id).values(lang=code))
         await s.commit()
     i18n.set_current_lang(code)           # дальше этот же апдейт рисуется уже на новом языке
     await cb.answer(t("lang.changed"))
-    await render_profile(cb)
+    return True
+
+
+@router.callback_query(F.data.startswith("lang:"))
+async def cb_set_lang(cb: CallbackQuery):
+    """Смена языка во вкладке «Язык» профиля: после выбора открывается профиль."""
+    if await _save_lang(cb):
+        await render_profile(cb)
+
+
+@router.callback_query(F.data.startswith("langs:"))
+async def cb_first_lang(cb: CallbackQuery):
+    """Первый /start: после выбора языка открывается главное меню."""
+    if await _save_lang(cb):
+        await show_main(cb.bot, cb.message.chat.id, Ref.of(cb.message))
 
 
 @router.callback_query(F.data == "history")
